@@ -11,7 +11,14 @@
 #include "modbus_crc.h"
 #include "stm32f1xx_hal.h"
 
-#define SLAVE_ID 7
+#define SLAVE_ID_DEFAULT 7
+#define MODBUS_MIN_SLAVE_ID 1
+#define MODBUS_MAX_SLAVE_ID 247
+
+/* Registro ausiliario Modbus (holding register) per configurare lo slave ID.
+ * Indice 0 => indirizzo Modbus 40001
+ */
+#define MB_AUX_REGIDX_SLAVE_ID 0
 
 
 #define MAX_MAX_CHIPS 8
@@ -94,5 +101,8 @@ uint8_t writeSingleCoil (void);
 uint8_t writeMultiCoils (void);
 
 void modbusException (uint8_t exceptioncode);
+
+uint8_t Modbus_GetSlaveId(void);
+void Modbus_LoadSlaveIdFromEeprom(void);
 
 #endif /* INC_MODBUSSLAVE_H_ */

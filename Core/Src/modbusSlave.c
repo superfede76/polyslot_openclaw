@@ -48,6 +48,36 @@ extern powermeter_t powermeter[MAX_CS];
 
 extern enum slot installed_slot[NUM_SLOT];
 
+static uint8_t g_modbus_slave_id = SLAVE_ID_DEFAULT;
+
+static bool is_valid_slave_id(uint16_t id)
+{
+	return (id >= MODBUS_MIN_SLAVE_ID) && (id <= MODBUS_MAX_SLAVE_ID);
+}
+
+uint8_t Modbus_GetSlaveId(void)
+{
+	return g_modbus_slave_id;
+}
+
+void Modbus_LoadSlaveIdFromEeprom(void)
+{
+	uint8_t raw[2] = {0};
+	if (HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS, MB_AUX_REGIDX_SLAVE_ID * 2,
+			I2C_MEMADD_SIZE_8BIT, raw, 2, HAL_MAX_DELAY) != HAL_OK)
+	{
+		g_modbus_slave_id = SLAVE_ID_DEFAULT;
+		return;
+	}
+
+	uint16_t configured = ((uint16_t)raw[0] << 8) | raw[1];
+	if (is_valid_slave_id(configured)) {
+		g_modbus_slave_id = (uint8_t)configured;
+	} else {
+		g_modbus_slave_id = SLAVE_ID_DEFAULT;
+	}
+}
+
 /* -------------------- Utility Modbus -------------------- */
 
 void sendData (uint8_t *data, int size)
@@ -215,7 +245,7 @@ uint8_t readCoils (void)
 
 	uint8_t byteCount = (uint8_t)((numCoils + 7) / 8);
 
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];   // function code
 	TxData[2] = byteCount;
 
@@ -284,7 +314,7 @@ uint8_t readInputs (void)
 
 	uint8_t byteCount = (uint8_t)((numInputs + 7) / 8);
 
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];  // function code
 	TxData[2] = byteCount;
 
@@ -352,7 +382,7 @@ uint8_t readHoldingRegs (void)
 		return 0;
 	}
 
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];
 	TxData[2] = (uint8_t)byteCount;
 
@@ -407,7 +437,7 @@ uint8_t readInputRegs (void)
             }
         }
 
-        TxData[0] = SLAVE_ID;
+        TxData[0] = Modbus_GetSlaveId();
         TxData[1] = RxData[1];
         TxData[2] = (uint8_t)(numRegs * 2);
         int indx  = 3;
@@ -458,7 +488,7 @@ uint8_t readInputRegs (void)
             return 0;
         }
 
-        TxData[0] = SLAVE_ID;
+        TxData[0] = Modbus_GetSlaveId();
         TxData[1] = RxData[1];
         TxData[2] = (uint8_t)(numRegs * 2);
         int indx  = 3;
@@ -509,7 +539,7 @@ uint8_t readInputRegs (void)
 		}
 	}
 
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];
 	TxData[2] = (uint8_t)(numRegs * 2);   // byte count
 
@@ -568,7 +598,7 @@ uint8_t writeSingleCoil (void)
 	digitalIO_Write(&digitalIO[slot], (uint8_t)pin, value);
 
 	// Echo
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];
 	TxData[2] = RxData[2];
 	TxData[3] = RxData[3];
@@ -602,6 +632,13 @@ uint8_t writeSingleReg (void)
 	buffer[0] = RxData[4];
 	buffer[1] = RxData[5];
 
+	uint16_t newSlaveId = ((uint16_t)buffer[0] << 8) | buffer[1];
+	bool changeSlaveId = (regIndex == MB_AUX_REGIDX_SLAVE_ID);
+	if (changeSlaveId && !is_valid_slave_id(newSlaveId)) {
+		modbusException(ILLEGAL_DATA_VALUE);
+		return 0;
+	}
+
 	if (HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, byteAddr, I2C_MEMADD_SIZE_8BIT,
 			buffer, 2, HAL_MAX_DELAY) != HAL_OK)
 	{
@@ -609,8 +646,8 @@ uint8_t writeSingleReg (void)
 		return 0;
 	}
 
-	// Echo
-	TxData[0] = SLAVE_ID;
+	// Echo con ID della richiesta (prima di eventuale cambio ID runtime)
+	TxData[0] = RxData[0];
 	TxData[1] = RxData[1];
 	TxData[2] = RxData[2];
 	TxData[3] = RxData[3];
@@ -618,6 +655,11 @@ uint8_t writeSingleReg (void)
 	TxData[5] = RxData[5];
 
 	sendData(TxData, 6);
+
+	if (changeSlaveId) {
+		g_modbus_slave_id = (uint8_t)newSlaveId;
+	}
+
 	return 1;
 }
 
@@ -683,7 +725,7 @@ uint8_t writeMultiCoils (void)
 	}
 
 	// risposta: echo indirizzo e quantità
-	TxData[0] = SLAVE_ID;
+	TxData[0] = Modbus_GetSlaveId();
 	TxData[1] = RxData[1];
 	TxData[2] = RxData[2];
 	TxData[3] = RxData[3];
@@ -734,6 +776,18 @@ uint8_t writeHoldingRegs (void)
 		buffer[i] = RxData[dataIdx++];
 	}
 
+	bool changeSlaveId = false;
+	uint16_t newSlaveId = 0;
+	if ((MB_AUX_REGIDX_SLAVE_ID >= regIndex) && (MB_AUX_REGIDX_SLAVE_ID < (regIndex + numRegs))) {
+		uint16_t off = (MB_AUX_REGIDX_SLAVE_ID - regIndex) * 2;
+		newSlaveId = ((uint16_t)buffer[off] << 8) | buffer[off + 1];
+		if (!is_valid_slave_id(newSlaveId)) {
+			modbusException(ILLEGAL_DATA_VALUE);
+			return 0;
+		}
+		changeSlaveId = true;
+	}
+
 	if (HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, byteAddr, I2C_MEMADD_SIZE_8BIT,
 			buffer, byteCount, HAL_MAX_DELAY) != HAL_OK)
 	{
@@ -741,8 +795,8 @@ uint8_t writeHoldingRegs (void)
 		return 0;
 	}
 
-	// risposta: echo start address e numero registri
-	TxData[0] = SLAVE_ID;
+	// risposta: echo start address e numero registri (ID della richiesta)
+	TxData[0] = RxData[0];
 	TxData[1] = RxData[1];
 	TxData[2] = RxData[2];
 	TxData[3] = RxData[3];
@@ -750,5 +804,10 @@ uint8_t writeHoldingRegs (void)
 	TxData[5] = RxData[5];
 
 	sendData(TxData, 6);
+
+	if (changeSlaveId) {
+		g_modbus_slave_id = (uint8_t)newSlaveId;
+	}
+
 	return 1;
 }

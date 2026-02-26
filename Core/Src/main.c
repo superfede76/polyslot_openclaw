@@ -103,7 +103,8 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN 0 */
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-	if (RxData[0] == SLAVE_ID)
+	uint8_t slaveId = Modbus_GetSlaveId();
+	if (RxData[0] == slaveId)
 	{
 		switch (RxData[1]){
 		case 0x01: 	//OK
@@ -242,6 +243,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  Modbus_LoadSlaveIdFromEeprom();
   MX_SPI1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
