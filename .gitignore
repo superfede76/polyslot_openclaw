@@ -1,0 +1,18 @@
+# STM32CubeIDE / Eclipse build outputs
+Debug/
+Release/
+build/
+
+# STM32CubeMX generated backup files
+*.bak
+*.tmp
+
+# Eclipse local/runtime metadata
+.metadata/
+
+# Optional local settings often regenerated
+.settings/language.settings.xml
+
+# OS junk
+.DS_Store
+Thumbs.db
