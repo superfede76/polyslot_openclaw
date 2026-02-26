@@ -50,6 +50,21 @@ extern enum slot installed_slot[NUM_SLOT];
 
 static uint8_t g_modbus_slave_id = SLAVE_ID_DEFAULT;
 
+#define CASS_STATUS_IDLE   0
+#define CASS_STATUS_BUSY   1
+#define CASS_STATUS_DONE   2
+#define CASS_STATUS_ERROR  3
+#define CASS_MAX_SAMPLES   1024
+
+static uint16_t g_cass_samples[CASS_MAX_SAMPLES];
+static uint16_t g_cass_adc_select = 0;
+static uint16_t g_cass_channel = 0;
+static uint16_t g_cass_freq_hz = 1;
+static uint16_t g_cass_num_samples = 1;
+static uint16_t g_cass_sample_offset = 0;
+static uint16_t g_cass_last_count = 0;
+static uint16_t g_cass_status = CASS_STATUS_IDLE;
+
 static bool is_valid_slave_id(uint16_t id)
 {
 	return (id >= MODBUS_MIN_SLAVE_ID) && (id <= MODBUS_MAX_SLAVE_ID);
@@ -95,6 +110,87 @@ void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT])
 			raw,
 			sizeof(raw),
 			HAL_MAX_DELAY);
+}
+
+static bool cass_holding_is_ram(uint16_t addr)
+{
+	return (addr >= CASS_HREG_ADC_SELECT) && (addr <= CASS_HREG_SAMPLES_END);
+}
+
+static int8_t cassandra_find_slot(void)
+{
+	for (uint8_t i = 0; i < NUM_SLOT; i++) {
+		if (installed_slot[i] == cassandra) return (int8_t)i;
+	}
+	return -1;
+}
+
+static void cassandra_select_adc(uint8_t adc)
+{
+	// 00->ADC0, 01->ADC1, 10->ADC2, 11 non usato
+	HAL_GPIO_WritePin(DEMUX_A_GPIO_Port, DEMUX_A_Pin, (adc & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(DEMUX_B_GPIO_Port, DEMUX_B_Pin, (adc & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static uint16_t cassandra_read_sample_raw(uint8_t slot, uint8_t adc, uint8_t ch)
+{
+	uint8_t tx[2] = {0};
+	uint8_t rx[2] = {0};
+	// Comando canale: CH0/CH1 (0/1)
+	tx[0] = (uint8_t)((ch & 0x01) << 3);
+	tx[1] = 0x00;
+
+	cassandra_select_adc(adc);
+	HAL_GPIO_WritePin(slot_cs_array[slot].NSS_Port, slot_cs_array[slot].NSS_Pin, GPIO_PIN_RESET);
+	if (HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2, HAL_MAX_DELAY) != HAL_OK) {
+		HAL_GPIO_WritePin(slot_cs_array[slot].NSS_Port, slot_cs_array[slot].NSS_Pin, GPIO_PIN_SET);
+		return 0;
+	}
+	HAL_GPIO_WritePin(slot_cs_array[slot].NSS_Port, slot_cs_array[slot].NSS_Pin, GPIO_PIN_SET);
+
+	return (uint16_t)(((uint16_t)(rx[0] & 0x0F) << 8) | rx[1]); // 12-bit raw
+}
+
+static bool cassandra_run_acquisition(void)
+{
+	if (g_cass_adc_select > 2) return false;
+	if (g_cass_channel > 1) return false;
+	if (g_cass_freq_hz == 0) return false;
+	if ((g_cass_num_samples == 0) || (g_cass_num_samples > CASS_MAX_SAMPLES)) return false;
+
+	int8_t slot = cassandra_find_slot();
+	if (slot < 0) return false;
+
+	g_cass_status = CASS_STATUS_BUSY;
+	uint32_t period_ms = 1000u / g_cass_freq_hz;
+	for (uint16_t i = 0; i < g_cass_num_samples; i++) {
+		g_cass_samples[i] = cassandra_read_sample_raw((uint8_t)slot, (uint8_t)g_cass_adc_select, (uint8_t)g_cass_channel);
+		if (period_ms > 0) HAL_Delay(period_ms);
+	}
+	g_cass_last_count = g_cass_num_samples;
+	if (g_cass_sample_offset >= g_cass_last_count) g_cass_sample_offset = 0;
+	g_cass_status = CASS_STATUS_DONE;
+	return true;
+}
+
+static uint16_t cassandra_ram_holding_read(uint16_t addr)
+{
+	switch (addr) {
+	case CASS_HREG_ADC_SELECT: return g_cass_adc_select;
+	case CASS_HREG_CHANNEL: return g_cass_channel;
+	case CASS_HREG_FREQ_HZ: return g_cass_freq_hz;
+	case CASS_HREG_NUM_SAMPLES: return g_cass_num_samples;
+	case CASS_HREG_STATUS: return g_cass_status;
+	case CASS_HREG_SAMPLE_OFFSET: return g_cass_sample_offset;
+	default:
+		if ((addr >= CASS_HREG_SAMPLES_START) && (addr <= CASS_HREG_SAMPLES_END)) {
+			uint16_t rel = (uint16_t)(addr - CASS_HREG_SAMPLES_START);
+			uint16_t idx = (uint16_t)(g_cass_sample_offset + rel);
+			if (idx < g_cass_last_count) return g_cass_samples[idx];
+			return 0;
+		}
+		return 0;
+	}
 }
 
 /* -------------------- Utility Modbus -------------------- */
@@ -392,8 +488,26 @@ uint8_t readHoldingRegs (void)
 	uint16_t byteAddr  = regIndex * 2;                    // 2 byte per registro
 	uint16_t byteCount = numRegs * 2;
 
-	uint8_t buffer[256];
+	TxData[0] = Modbus_GetSlaveId();
+	TxData[1] = RxData[1];
+	TxData[2] = (uint8_t)byteCount;
+	int outIdx = 3;
 
+	if (cass_holding_is_ram(startAddr) || cass_holding_is_ram(endAddr)) {
+		if (!(cass_holding_is_ram(startAddr) && cass_holding_is_ram(endAddr))) {
+			modbusException(ILLEGAL_DATA_ADDRESS); // no range misti RAM/EEPROM
+			return 0;
+		}
+		for (uint16_t a = startAddr; a <= endAddr; a++) {
+			uint16_t v = cassandra_ram_holding_read(a);
+			TxData[outIdx++] = (uint8_t)(v >> 8);
+			TxData[outIdx++] = (uint8_t)(v & 0xFF);
+		}
+		sendData(TxData, outIdx);
+		return 1;
+	}
+
+	uint8_t buffer[256];
 	if (HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS, byteAddr, I2C_MEMADD_SIZE_8BIT,
 			buffer, byteCount, HAL_MAX_DELAY) != HAL_OK)
 	{
@@ -401,11 +515,6 @@ uint8_t readHoldingRegs (void)
 		return 0;
 	}
 
-	TxData[0] = Modbus_GetSlaveId();
-	TxData[1] = RxData[1];
-	TxData[2] = (uint8_t)byteCount;
-
-	int outIdx = 3;
 	for (uint16_t i = 0; i < byteCount; i++) {
 		TxData[outIdx++] = buffer[i];
 	}
@@ -647,6 +756,32 @@ uint8_t writeSingleReg (void)
 	uint16_t regIndex = addr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
 
+	if (cass_holding_is_ram(addr)) {
+		uint16_t value = ((uint16_t)RxData[4] << 8) | RxData[5];
+		switch (addr) {
+		case CASS_HREG_ADC_SELECT: g_cass_adc_select = value; break;
+		case CASS_HREG_CHANNEL: g_cass_channel = value; break;
+		case CASS_HREG_FREQ_HZ: g_cass_freq_hz = value; break;
+		case CASS_HREG_NUM_SAMPLES:
+			g_cass_num_samples = value;
+			if (!cassandra_run_acquisition()) g_cass_status = CASS_STATUS_ERROR;
+			break;
+		case CASS_HREG_SAMPLE_OFFSET: g_cass_sample_offset = value; break;
+		default:
+			modbusException(ILLEGAL_DATA_ADDRESS);
+			return 0;
+		}
+
+		TxData[0] = Modbus_GetSlaveId();
+		TxData[1] = RxData[1];
+		TxData[2] = RxData[2];
+		TxData[3] = RxData[3];
+		TxData[4] = RxData[4];
+		TxData[5] = RxData[5];
+		sendData(TxData, 6);
+		return 1;
+	}
+
 	if ((regIndex >= MB_AUX_REGIDX_SLOT_TYPE_BASE) && (regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST)) {
 		modbusException(ILLEGAL_DATA_ADDRESS); // registri slot type in sola lettura lato master
 		return 0;
@@ -792,6 +927,40 @@ uint8_t writeHoldingRegs (void)
 
 	uint16_t regIndex = startAddr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
+
+	if (cass_holding_is_ram(startAddr) || cass_holding_is_ram(endAddr)) {
+		if (!(cass_holding_is_ram(startAddr) && cass_holding_is_ram(endAddr))) {
+			modbusException(ILLEGAL_DATA_ADDRESS); // no range misti RAM/EEPROM
+			return 0;
+		}
+		int dataIdxRam = 7;
+		for (uint16_t a = startAddr; a <= endAddr; a++) {
+			uint16_t value = ((uint16_t)RxData[dataIdxRam] << 8) | RxData[dataIdxRam + 1];
+			dataIdxRam += 2;
+			switch (a) {
+			case CASS_HREG_ADC_SELECT: g_cass_adc_select = value; break;
+			case CASS_HREG_CHANNEL: g_cass_channel = value; break;
+			case CASS_HREG_FREQ_HZ: g_cass_freq_hz = value; break;
+			case CASS_HREG_NUM_SAMPLES: g_cass_num_samples = value; break;
+			case CASS_HREG_SAMPLE_OFFSET: g_cass_sample_offset = value; break;
+			default:
+				modbusException(ILLEGAL_DATA_ADDRESS);
+				return 0;
+			}
+		}
+		if ((startAddr <= CASS_HREG_NUM_SAMPLES) && (endAddr >= CASS_HREG_NUM_SAMPLES)) {
+			if (!cassandra_run_acquisition()) g_cass_status = CASS_STATUS_ERROR;
+		}
+
+		TxData[0] = Modbus_GetSlaveId();
+		TxData[1] = RxData[1];
+		TxData[2] = RxData[2];
+		TxData[3] = RxData[3];
+		TxData[4] = RxData[4];
+		TxData[5] = RxData[5];
+		sendData(TxData, 6);
+		return 1;
+	}
 
 	if ((regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST) && ((regIndex + numRegs - 1) >= MB_AUX_REGIDX_SLOT_TYPE_BASE)) {
 		modbusException(ILLEGAL_DATA_ADDRESS); // blocco registri slot type in sola lettura lato master

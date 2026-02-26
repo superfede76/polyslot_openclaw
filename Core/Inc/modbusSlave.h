@@ -79,6 +79,18 @@
 //#define TOTAL_INPUT_REGS	(NUM_SLOT * REG_PER_SLOT)
 #define TOTAL_HOLDING_REGS 	128
 
+/* RAM holding registers per acquisizione Cassandra (non persistenti in EEPROM)
+ * 40010..40128
+ */
+#define CASS_HREG_ADC_SELECT      40010
+#define CASS_HREG_CHANNEL         40011
+#define CASS_HREG_FREQ_HZ         40012
+#define CASS_HREG_NUM_SAMPLES     40013
+#define CASS_HREG_STATUS          40014
+#define CASS_HREG_SAMPLE_OFFSET   40015
+#define CASS_HREG_SAMPLES_START   40016
+#define CASS_HREG_SAMPLES_END     40128
+
 
 
 /*
