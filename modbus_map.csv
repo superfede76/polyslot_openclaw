@@ -1,0 +1,87 @@
+section,fc,address_start,address_end,slot_formula,channel_formula,value_format,valid_when,notes
+coils,0x01/0x05/0x0F,1,64,"slot=floor((addr-1)/8)","bit=(addr-1)%8",bool,"output: bit0..7, mixedIO: bit0..3","Write/read digital outputs"
+contacts,0x02,10001,10064,"slot=floor((addr-10001)/8)","bit=(addr-10001)%8",bool,"input: bit0..7, mixedIO: bit4..7","Read digital inputs"
+input_regs_base,0x04,30001,30032,"slot=floor((addr-30001)/4)","ch=(addr-30001)%4","uint16/int16 scaled","analog_board, pt100_board, pulsecounter","4 regs per slot"
+input_regs_powermeter,0x04,30097,30608,"slot=floor((addr-30097)/64)","reg=(addr-30097)%64",uint16,"powermeter_board","Requests must stay within single slot block (64 regs)"
+holding_regs,0x03/0x06/0x10,40001,40128,"reg_index=addr-40001",n/a,uint16,"always","Backed by EEPROM I2C"
+
+# Detailed base input register map (30001..30032)
+section,address,slot,ch,meaning,type,scale
+input_regs_base,30001,A,0,Slot A Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30002,A,1,Slot A Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30003,A,2,Slot A Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30004,A,3,Slot A Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30005,B,0,Slot B Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30006,B,1,Slot B Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30007,B,2,Slot B Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30008,B,3,Slot B Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30009,C,0,Slot C Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30010,C,1,Slot C Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30011,C,2,Slot C Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30012,C,3,Slot C Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30013,D,0,Slot D Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30014,D,1,Slot D Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30015,D,2,Slot D Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30016,D,3,Slot D Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30017,E,0,Slot E Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30018,E,1,Slot E Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30019,E,2,Slot E Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30020,E,3,Slot E Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30021,F,0,Slot F Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30022,F,1,Slot F Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30023,F,2,Slot F Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30024,F,3,Slot F Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30025,G,0,Slot G Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30026,G,1,Slot G Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30027,G,2,Slot G Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30028,G,3,Slot G Channel 3,uint16/int16,"depends on slot type"
+input_regs_base,30029,H,0,Slot H Channel 0,uint16/int16,"depends on slot type"
+input_regs_base,30030,H,1,Slot H Channel 1,uint16/int16,"depends on slot type"
+input_regs_base,30031,H,2,Slot H Channel 2,uint16/int16,"depends on slot type"
+input_regs_base,30032,H,3,Slot H Channel 3,uint16/int16,"depends on slot type"
+
+# Powermeter block per slot (same pattern for A..H)
+section,address_start,address_end,slot,reg_start,reg_end,description
+input_regs_powermeter,30097,30160,A,0,63,Slot A powermeter register block
+input_regs_powermeter,30161,30224,B,0,63,Slot B powermeter register block
+input_regs_powermeter,30225,30288,C,0,63,Slot C powermeter register block
+input_regs_powermeter,30289,30352,D,0,63,Slot D powermeter register block
+input_regs_powermeter,30353,30416,E,0,63,Slot E powermeter register block
+input_regs_powermeter,30417,30480,F,0,63,Slot F powermeter register block
+input_regs_powermeter,30481,30544,G,0,63,Slot G powermeter register block
+input_regs_powermeter,30545,30608,H,0,63,Slot H powermeter register block
+
+# Powermeter logical register names (0..31 currently defined)
+section,reg_index,name,notes
+powermeter_reg,0,PM_REG_VRMS_R,V RMS phase R
+powermeter_reg,1,PM_REG_IRMS_R,I RMS phase R
+powermeter_reg,2,PM_REG_VRMS_S,V RMS phase S
+powermeter_reg,3,PM_REG_IRMS_S,I RMS phase S
+powermeter_reg,4,PM_REG_VRMS_T,V RMS phase T
+powermeter_reg,5,PM_REG_IRMS_T,I RMS phase T
+powermeter_reg,6,PM_REG_IRMS_N,I RMS neutral
+powermeter_reg,7,PM_REG_FREQ,Grid frequency
+powermeter_reg,8,PM_REG_P_TOTAL,Total active power
+powermeter_reg,9,PM_REG_Q_TOTAL,Total reactive power
+powermeter_reg,10,PM_REG_S_TOTAL,Total apparent power
+powermeter_reg,11,PM_REG_PF_TOTAL,Total power factor
+powermeter_reg,12,PM_REG_E_ACTIVE_HI,Active energy high word
+powermeter_reg,13,PM_REG_E_ACTIVE_LO,Active energy low word
+powermeter_reg,14,PM_REG_E_REACTIVE_HI,Reactive energy high word
+powermeter_reg,15,PM_REG_E_REACTIVE_LO,Reactive energy low word
+powermeter_reg,16,PM_REG_PHASE_P_R,Phase R active power
+powermeter_reg,17,PM_REG_PHASE_P_S,Phase S active power
+powermeter_reg,18,PM_REG_PHASE_P_T,Phase T active power
+powermeter_reg,19,PM_REG_PHASE_Q_R,Phase R reactive power
+powermeter_reg,20,PM_REG_PHASE_Q_S,Phase S reactive power
+powermeter_reg,21,PM_REG_PHASE_Q_T,Phase T reactive power
+powermeter_reg,22,PM_REG_PHASE_PF_R,Phase R power factor
+powermeter_reg,23,PM_REG_PHASE_PF_S,Phase S power factor
+powermeter_reg,24,PM_REG_PHASE_PF_T,Phase T power factor
+powermeter_reg,25,PM_REG_RESERVED_25,Reserved
+powermeter_reg,26,PM_REG_RESERVED_26,Reserved
+powermeter_reg,27,PM_REG_RESERVED_27,Reserved
+powermeter_reg,28,PM_REG_RESERVED_28,Reserved
+powermeter_reg,29,PM_REG_RESERVED_29,Reserved
+powermeter_reg,30,PM_REG_RESERVED_30,Reserved
+powermeter_reg,31,PM_REG_RESERVED_31,Reserved
