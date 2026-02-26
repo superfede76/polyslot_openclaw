@@ -78,6 +78,25 @@ void Modbus_LoadSlaveIdFromEeprom(void)
 	}
 }
 
+void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT])
+{
+	if (slotTypes == NULL) return;
+
+	uint8_t raw[MB_AUX_SLOT_TYPE_COUNT * 2] = {0};
+	for (uint8_t i = 0; i < MB_AUX_SLOT_TYPE_COUNT; i++) {
+		raw[i * 2] = 0x00;
+		raw[i * 2 + 1] = slotTypes[i];
+	}
+
+	(void)HAL_I2C_Mem_Write(&hi2c1,
+			EEPROM_ADDRESS,
+			MB_AUX_REGIDX_SLOT_TYPE_BASE * 2,
+			I2C_MEMADD_SIZE_8BIT,
+			raw,
+			sizeof(raw),
+			HAL_MAX_DELAY);
+}
+
 /* -------------------- Utility Modbus -------------------- */
 
 void sendData (uint8_t *data, int size)
@@ -628,6 +647,11 @@ uint8_t writeSingleReg (void)
 	uint16_t regIndex = addr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
 
+	if ((regIndex >= MB_AUX_REGIDX_SLOT_TYPE_BASE) && (regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST)) {
+		modbusException(ILLEGAL_DATA_ADDRESS); // registri slot type in sola lettura lato master
+		return 0;
+	}
+
 	uint8_t buffer[2];
 	buffer[0] = RxData[4];
 	buffer[1] = RxData[5];
@@ -768,6 +792,11 @@ uint8_t writeHoldingRegs (void)
 
 	uint16_t regIndex = startAddr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
+
+	if ((regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST) && ((regIndex + numRegs - 1) >= MB_AUX_REGIDX_SLOT_TYPE_BASE)) {
+		modbusException(ILLEGAL_DATA_ADDRESS); // blocco registri slot type in sola lettura lato master
+		return 0;
+	}
 
 	uint8_t buffer[256];
 	int dataIdx = 7;

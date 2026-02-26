@@ -19,6 +19,9 @@
  * Indice 0 => indirizzo Modbus 40001
  */
 #define MB_AUX_REGIDX_SLAVE_ID 0
+#define MB_AUX_REGIDX_SLOT_TYPE_BASE 1
+#define MB_AUX_SLOT_TYPE_COUNT 8
+#define MB_AUX_REGIDX_SLOT_TYPE_LAST (MB_AUX_REGIDX_SLOT_TYPE_BASE + MB_AUX_SLOT_TYPE_COUNT - 1)
 
 
 #define MAX_MAX_CHIPS 8
@@ -104,5 +107,6 @@ void modbusException (uint8_t exceptioncode);
 
 uint8_t Modbus_GetSlaveId(void);
 void Modbus_LoadSlaveIdFromEeprom(void);
+void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT]);
 
 #endif /* INC_MODBUSSLAVE_H_ */

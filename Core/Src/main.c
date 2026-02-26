@@ -262,6 +262,13 @@ int main(void)
 
 
 	slot_poll();
+	{
+		uint8_t slotTypes[NUM_SLOT];
+		for (uint8_t i = 0; i < NUM_SLOT; i++) {
+			slotTypes[i] = (uint8_t)installed_slot[i];
+		}
+		Modbus_SaveSlotTypesToEeprom(slotTypes);
+	}
 	HAL_UARTEx_ReceiveToIdle_IT(&huart1, RxData, 256);
   /* USER CODE END 2 */
 
