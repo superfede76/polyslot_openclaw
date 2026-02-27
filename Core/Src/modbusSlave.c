@@ -97,19 +97,24 @@ void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT])
 {
 	if (slotTypes == NULL) return;
 
-	uint8_t raw[MB_AUX_SLOT_TYPE_COUNT * 2] = {0};
+	/*
+	 * Evita write multi-byte unico: su molte EEPROM I2C i write che attraversano
+	 * il page-boundary fanno wrap e possono corrompere indirizzi precedenti
+	 * (incluso il registro slave-id a byte 0..1).
+	 *
+	 * Scriviamo 1 registro (2 byte) alla volta, solo nel range 40002..40009.
+	 */
 	for (uint8_t i = 0; i < MB_AUX_SLOT_TYPE_COUNT; i++) {
-		raw[i * 2] = 0x00;
-		raw[i * 2 + 1] = slotTypes[i];
+		uint8_t raw[2] = {0x00, slotTypes[i]};
+		uint16_t byteAddr = (uint16_t)(MB_AUX_REGIDX_SLOT_TYPE_BASE + i) * 2;
+		(void)HAL_I2C_Mem_Write(&hi2c1,
+				EEPROM_ADDRESS,
+				byteAddr,
+				I2C_MEMADD_SIZE_8BIT,
+				raw,
+				sizeof(raw),
+				HAL_MAX_DELAY);
 	}
-
-	(void)HAL_I2C_Mem_Write(&hi2c1,
-			EEPROM_ADDRESS,
-			MB_AUX_REGIDX_SLOT_TYPE_BASE * 2,
-			I2C_MEMADD_SIZE_8BIT,
-			raw,
-			sizeof(raw),
-			HAL_MAX_DELAY);
 }
 
 static bool cass_holding_is_ram(uint16_t addr)
@@ -517,6 +522,16 @@ uint8_t readHoldingRegs (void)
 
 	for (uint16_t i = 0; i < byteCount; i++) {
 		TxData[outIdx++] = buffer[i];
+	}
+
+	/*
+	 * Coerenza runtime: il registro 40001 (slave-id) deve riflettere
+	 * sempre l'ID realmente in uso sul bus, anche se EEPROM è stale.
+	 */
+	if ((regIndex <= MB_AUX_REGIDX_SLAVE_ID) && ((regIndex + numRegs - 1) >= MB_AUX_REGIDX_SLAVE_ID)) {
+		uint16_t off = (MB_AUX_REGIDX_SLAVE_ID - regIndex) * 2;
+		TxData[3 + off] = 0x00;
+		TxData[3 + off + 1] = Modbus_GetSlaveId();
 	}
 
 	sendData(TxData, outIdx);
