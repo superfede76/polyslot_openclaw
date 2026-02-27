@@ -120,5 +120,6 @@ void modbusException (uint8_t exceptioncode);
 uint8_t Modbus_GetSlaveId(void);
 void Modbus_LoadSlaveIdFromEeprom(void);
 void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT]);
+void Modbus_ProcessBackground(void);
 
 #endif /* INC_MODBUSSLAVE_H_ */

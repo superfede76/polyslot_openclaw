@@ -64,6 +64,9 @@ static uint16_t g_cass_num_samples = 1;
 static uint16_t g_cass_sample_offset = 0;
 static uint16_t g_cass_last_count = 0;
 static uint16_t g_cass_status = CASS_STATUS_IDLE;
+static volatile uint8_t g_cass_run_pending = 0;
+
+static bool cassandra_run_acquisition(void);
 
 static bool is_valid_slave_id(uint16_t id)
 {
@@ -114,6 +117,16 @@ void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT])
 				raw,
 				sizeof(raw),
 				HAL_MAX_DELAY);
+	}
+}
+
+void Modbus_ProcessBackground(void)
+{
+	if (!g_cass_run_pending) return;
+	g_cass_run_pending = 0;
+
+	if (!cassandra_run_acquisition()) {
+		g_cass_status = CASS_STATUS_ERROR;
 	}
 }
 
@@ -779,7 +792,8 @@ uint8_t writeSingleReg (void)
 		case CASS_HREG_FREQ_HZ: g_cass_freq_hz = value; break;
 		case CASS_HREG_NUM_SAMPLES:
 			g_cass_num_samples = value;
-			if (!cassandra_run_acquisition()) g_cass_status = CASS_STATUS_ERROR;
+			g_cass_status = CASS_STATUS_BUSY;
+			g_cass_run_pending = 1;
 			break;
 		case CASS_HREG_SAMPLE_OFFSET: g_cass_sample_offset = value; break;
 		default:
@@ -964,7 +978,8 @@ uint8_t writeHoldingRegs (void)
 			}
 		}
 		if ((startAddr <= CASS_HREG_NUM_SAMPLES) && (endAddr >= CASS_HREG_NUM_SAMPLES)) {
-			if (!cassandra_run_acquisition()) g_cass_status = CASS_STATUS_ERROR;
+			g_cass_status = CASS_STATUS_BUSY;
+			g_cass_run_pending = 1;
 		}
 
 		TxData[0] = Modbus_GetSlaveId();
