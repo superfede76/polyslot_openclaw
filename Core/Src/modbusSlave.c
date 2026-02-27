@@ -547,6 +547,22 @@ uint8_t readHoldingRegs (void)
 		TxData[3 + off + 1] = Modbus_GetSlaveId();
 	}
 
+	/*
+	 * I registri 40002..40009 (slot type) sono esposti come stato LIVE
+	 * dal runtime (installed_slot), non da EEPROM, così riflettono sempre
+	 * il rilevamento effettivo post-boot.
+	 */
+	for (uint16_t i = 0; i < numRegs; i++) {
+		uint16_t idx = regIndex + i;
+		if ((idx >= MB_AUX_REGIDX_SLOT_TYPE_BASE) && (idx <= MB_AUX_REGIDX_SLOT_TYPE_LAST)) {
+			uint16_t off = i * 2;
+			uint8_t slotIx = (uint8_t)(idx - MB_AUX_REGIDX_SLOT_TYPE_BASE);
+			uint16_t v = (uint16_t)installed_slot[slotIx];
+			TxData[3 + off] = (uint8_t)(v >> 8);
+			TxData[3 + off + 1] = (uint8_t)(v & 0xFF);
+		}
+	}
+
 	sendData(TxData, outIdx);
 	return 1;
 }
