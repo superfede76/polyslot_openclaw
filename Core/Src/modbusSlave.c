@@ -98,26 +98,11 @@ void Modbus_LoadSlaveIdFromEeprom(void)
 
 void Modbus_SaveSlotTypesToEeprom(const uint8_t slotTypes[NUM_SLOT])
 {
-	if (slotTypes == NULL) return;
-
 	/*
-	 * Evita write multi-byte unico: su molte EEPROM I2C i write che attraversano
-	 * il page-boundary fanno wrap e possono corrompere indirizzi precedenti
-	 * (incluso il registro slave-id a byte 0..1).
-	 *
-	 * Scriviamo 1 registro (2 byte) alla volta, solo nel range 40002..40009.
+	 * Deprecated: slot type non è più persistito in EEPROM.
+	 * La mappa slot è runtime/live (installed_slot) e viene esposta in RAM.
 	 */
-	for (uint8_t i = 0; i < MB_AUX_SLOT_TYPE_COUNT; i++) {
-		uint8_t raw[2] = {0x00, slotTypes[i]};
-		uint16_t byteAddr = (uint16_t)(MB_AUX_REGIDX_SLOT_TYPE_BASE + i) * 2;
-		(void)HAL_I2C_Mem_Write(&hi2c1,
-				EEPROM_ADDRESS,
-				byteAddr,
-				I2C_MEMADD_SIZE_8BIT,
-				raw,
-				sizeof(raw),
-				HAL_MAX_DELAY);
-	}
+	(void)slotTypes;
 }
 
 void Modbus_ProcessBackground(void)
@@ -130,9 +115,10 @@ void Modbus_ProcessBackground(void)
 	}
 }
 
-static bool cass_holding_is_ram(uint16_t addr)
+static bool holding_is_ram(uint16_t addr)
 {
-	return (addr >= CASS_HREG_ADC_SELECT) && (addr <= CASS_HREG_SAMPLES_END);
+	return (addr >= RAM_HOLDING_START_ADDR) &&
+			(addr <= (HOLDING_START_ADDR + TOTAL_HOLDING_REGS - 1));
 }
 
 static int8_t cassandra_find_slot(void)
@@ -191,8 +177,14 @@ static bool cassandra_run_acquisition(void)
 	return true;
 }
 
-static uint16_t cassandra_ram_holding_read(uint16_t addr)
+static uint16_t ram_holding_read(uint16_t addr)
 {
+	if ((addr >= RAM_SLOT_TYPE_START_ADDR) && (addr <= RAM_SLOT_TYPE_END_ADDR)) {
+		uint16_t slotIx = (uint16_t)(addr - RAM_SLOT_TYPE_START_ADDR);
+		if (slotIx < NUM_SLOT) return (uint16_t)installed_slot[slotIx];
+		return 0;
+	}
+
 	switch (addr) {
 	case CASS_HREG_ADC_SELECT: return g_cass_adc_select;
 	case CASS_HREG_CHANNEL: return g_cass_channel;
@@ -511,13 +503,13 @@ uint8_t readHoldingRegs (void)
 	TxData[2] = (uint8_t)byteCount;
 	int outIdx = 3;
 
-	if (cass_holding_is_ram(startAddr) || cass_holding_is_ram(endAddr)) {
-		if (!(cass_holding_is_ram(startAddr) && cass_holding_is_ram(endAddr))) {
+	if (holding_is_ram(startAddr) || holding_is_ram(endAddr)) {
+		if (!(holding_is_ram(startAddr) && holding_is_ram(endAddr))) {
 			modbusException(ILLEGAL_DATA_ADDRESS); // no range misti RAM/EEPROM
 			return 0;
 		}
 		for (uint16_t a = startAddr; a <= endAddr; a++) {
-			uint16_t v = cassandra_ram_holding_read(a);
+			uint16_t v = ram_holding_read(a);
 			TxData[outIdx++] = (uint8_t)(v >> 8);
 			TxData[outIdx++] = (uint8_t)(v & 0xFF);
 		}
@@ -547,21 +539,6 @@ uint8_t readHoldingRegs (void)
 		TxData[3 + off + 1] = Modbus_GetSlaveId();
 	}
 
-	/*
-	 * I registri 40002..40009 (slot type) sono esposti come stato LIVE
-	 * dal runtime (installed_slot), non da EEPROM, così riflettono sempre
-	 * il rilevamento effettivo post-boot.
-	 */
-	for (uint16_t i = 0; i < numRegs; i++) {
-		uint16_t idx = regIndex + i;
-		if ((idx >= MB_AUX_REGIDX_SLOT_TYPE_BASE) && (idx <= MB_AUX_REGIDX_SLOT_TYPE_LAST)) {
-			uint16_t off = i * 2;
-			uint8_t slotIx = (uint8_t)(idx - MB_AUX_REGIDX_SLOT_TYPE_BASE);
-			uint16_t v = (uint16_t)installed_slot[slotIx];
-			TxData[3 + off] = (uint8_t)(v >> 8);
-			TxData[3 + off + 1] = (uint8_t)(v & 0xFF);
-		}
-	}
 
 	sendData(TxData, outIdx);
 	return 1;
@@ -800,7 +777,7 @@ uint8_t writeSingleReg (void)
 	uint16_t regIndex = addr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
 
-	if (cass_holding_is_ram(addr)) {
+	if (holding_is_ram(addr)) {
 		uint16_t value = ((uint16_t)RxData[4] << 8) | RxData[5];
 		switch (addr) {
 		case CASS_HREG_ADC_SELECT: g_cass_adc_select = value; break;
@@ -827,8 +804,8 @@ uint8_t writeSingleReg (void)
 		return 1;
 	}
 
-	if ((regIndex >= MB_AUX_REGIDX_SLOT_TYPE_BASE) && (regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST)) {
-		modbusException(ILLEGAL_DATA_ADDRESS); // registri slot type in sola lettura lato master
+	if ((addr >= RAM_SLOT_TYPE_START_ADDR) && (addr <= RAM_SLOT_TYPE_END_ADDR)) {
+		modbusException(ILLEGAL_DATA_ADDRESS); // registri slot type live in sola lettura lato master
 		return 0;
 	}
 
@@ -973,8 +950,8 @@ uint8_t writeHoldingRegs (void)
 	uint16_t regIndex = startAddr - HOLDING_START_ADDR;
 	uint16_t byteAddr = regIndex * 2;
 
-	if (cass_holding_is_ram(startAddr) || cass_holding_is_ram(endAddr)) {
-		if (!(cass_holding_is_ram(startAddr) && cass_holding_is_ram(endAddr))) {
+	if (holding_is_ram(startAddr) || holding_is_ram(endAddr)) {
+		if (!(holding_is_ram(startAddr) && holding_is_ram(endAddr))) {
 			modbusException(ILLEGAL_DATA_ADDRESS); // no range misti RAM/EEPROM
 			return 0;
 		}
@@ -1008,8 +985,8 @@ uint8_t writeHoldingRegs (void)
 		return 1;
 	}
 
-	if ((regIndex <= MB_AUX_REGIDX_SLOT_TYPE_LAST) && ((regIndex + numRegs - 1) >= MB_AUX_REGIDX_SLOT_TYPE_BASE)) {
-		modbusException(ILLEGAL_DATA_ADDRESS); // blocco registri slot type in sola lettura lato master
+	if ((startAddr <= RAM_SLOT_TYPE_END_ADDR) && (endAddr >= RAM_SLOT_TYPE_START_ADDR)) {
+		modbusException(ILLEGAL_DATA_ADDRESS); // blocco registri slot type live in sola lettura lato master
 		return 0;
 	}
 

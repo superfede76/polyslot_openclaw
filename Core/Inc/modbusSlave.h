@@ -15,13 +15,15 @@
 #define MODBUS_MIN_SLAVE_ID 1
 #define MODBUS_MAX_SLAVE_ID 247
 
-/* Registro ausiliario Modbus (holding register) per configurare lo slave ID.
+/* Registro ausiliario Modbus in EEPROM per configurare lo slave ID.
  * Indice 0 => indirizzo Modbus 40001
  */
 #define MB_AUX_REGIDX_SLAVE_ID 0
-#define MB_AUX_REGIDX_SLOT_TYPE_BASE 1
-#define MB_AUX_SLOT_TYPE_COUNT 8
-#define MB_AUX_REGIDX_SLOT_TYPE_LAST (MB_AUX_REGIDX_SLOT_TYPE_BASE + MB_AUX_SLOT_TYPE_COUNT - 1)
+
+/* Slot type esposti in RAM (stato live rilevato a boot), read-only lato master */
+#define RAM_SLOT_TYPE_START_ADDR 40002
+#define RAM_SLOT_TYPE_COUNT 8
+#define RAM_SLOT_TYPE_END_ADDR (RAM_SLOT_TYPE_START_ADDR + RAM_SLOT_TYPE_COUNT - 1)
 
 
 #define MAX_MAX_CHIPS 8
@@ -70,6 +72,8 @@
 #define CONTACT_START_ADDR	10001
 #define INPUTREG_START_ADDR	30001
 #define HOLDING_START_ADDR 	40001
+#define EEPROM_HOLDING_REGS   1  /* 40001: slave-id */
+#define RAM_HOLDING_START_ADDR (HOLDING_START_ADDR + EEPROM_HOLDING_REGS)
 
 /* Base address dei registri powermeter */
 #define INPUTREG_PM_START_ADDR  PM_BASE_ADDR

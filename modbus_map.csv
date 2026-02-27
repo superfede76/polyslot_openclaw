@@ -3,7 +3,7 @@ coils,0x01/0x05/0x0F,1,64,"slot=floor((addr-1)/8)","bit=(addr-1)%8",bool,"output
 contacts,0x02,10001,10064,"slot=floor((addr-10001)/8)","bit=(addr-10001)%8",bool,"input: bit0..7, mixedIO: bit4..7","Read digital inputs"
 input_regs_base,0x04,30001,30032,"slot=floor((addr-30001)/4)","ch=(addr-30001)%4","uint16/int16 scaled","analog_board, pt100_board, pulsecounter","4 regs per slot"
 input_regs_powermeter,0x04,30097,30608,"slot=floor((addr-30097)/64)","reg=(addr-30097)%64",uint16,"powermeter_board","Requests must stay within single slot block (64 regs)"
-holding_regs,0x03/0x06/0x10,40001,40128,"reg_index=addr-40001",n/a,uint16,"always","Backed by EEPROM I2C"
+holding_regs,0x03/0x06/0x10,40001,40128,"reg_index=addr-40001",n/a,uint16,"always","40001 in EEPROM (slave-id); 40002..40128 in RAM runtime"
 
 # Detailed base input register map (30001..30032)
 section,address,slot,ch,meaning,type,scale
